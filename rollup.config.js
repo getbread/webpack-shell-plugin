@@ -1,10 +1,13 @@
 import babel from 'rollup-plugin-babel';
+import babelRc from 'babelrc-rollup';
 
 export default {
-  entry: 'src/webpack-shell-plugin.js',
-  format: 'cjs',
+  input: 'src/webpack-shell-plugin.js',
+  output: {
+    file: 'lib/index.js',
+    format: 'cjs',
+  },
   plugins: [
-    babel()
+    babel(babelRc())
   ],
-  dest: 'lib/index.js'
 };

@@ -19,7 +19,15 @@ module.exports = {
     ]
   },
   plugins: [
-    new WebpackShellPlugin({onBuildStart:['node test.js'], onBuildEnd:['echo "Webpack End"'], safe: true, verbose: true}),
+    new WebpackShellPlugin(
+      {
+        onBuildStart:['echo "wait sleep 20"', 'sleep 20', 'node test.js', 'echo "end node.test"'],
+        onBuildEnd:['echo "Webpack End"'],
+        safe: true,
+        verbose: true,
+        sync: true
+      }
+    ),
     new webpack.HotModuleReplacementPlugin()
   ]
 };

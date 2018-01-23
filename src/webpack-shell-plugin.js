@@ -1,5 +1,4 @@
-const spawn = require('child_process').spawn;
-const exec = require('child_process').exec;
+import {spawn, spawnSync, exec, execSync} from 'child_process';
 const os = require('os');
 
 const defaultOptions = {
@@ -8,12 +7,17 @@ const defaultOptions = {
   onBuildExit: [],
   dev: true,
   verbose: false,
-  safe: false
+  safe: false,
+  sync: false
 };
 
 export default class WebpackShellPlugin {
   constructor(options) {
     this.options = this.validateInput(this.mergeOptions(options, defaultOptions));
+
+    this.onCompilation = this.onCompilation.bind(this);
+    this.onAfterEmit = this.onAfterEmit.bind(this);
+    this.onDone = this.onDone.bind(this)
   }
 
   puts(error, stdout, stderr) {
@@ -36,13 +40,34 @@ export default class WebpackShellPlugin {
     return {command, args};
   }
 
+  async sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
   handleScript(script) {
+    let proc = null;
+
     if (os.platform() === 'win32' || this.options.safe) {
-      this.spreadStdoutAndStdErr(exec(script, this.puts));
+      if (this.options.sync) {
+        proc = execSync(script, {stdio:[0, 1, 2]});
+      } else {
+        proc = exec(script, this.puts);
+        this.spreadStdoutAndStdErr(proc);
+      }
     } else {
       const {command, args} = this.serializeScript(script);
-      const proc = spawn(command, args, {stdio: 'inherit'});
-      proc.on('close', this.puts);
+      if (this.options.sync) {
+        proc = spawnSync(command, args, {stdio: 'inherit'});
+      } else {
+        proc = spawn(command, args, {stdio: 'inherit'});
+        proc.on('close', this.puts);
+      }
+    }
+  }
+
+  handleScriptsOn(data) {
+    for (let item of data) {
+      this.handleScript(item)
     }
   }
 
@@ -69,43 +94,40 @@ export default class WebpackShellPlugin {
   }
 
   apply(compiler) {
+    compiler.plugin('compilation', this.onCompilation);
+    compiler.plugin('after-emit', this.onAfterEmit);
+    compiler.plugin('done', this.onDone);
+  }
 
-    compiler.plugin('compilation', (compilation) => {
-      if (this.options.verbose) {
-        console.log(`Report compilation: ${compilation}`);
-        console.warn(`WebpackShellPlugin [${new Date()}]: Verbose is being deprecated, please remove.`);
+  onCompilation(compilation) {
+    if (this.options.verbose) {
+      console.log(`Report compilation: ${compilation}`);
+      console.warn(`WebpackShellPlugin [${new Date()}]: Verbose is being deprecated, please remove.`);
+    }
+    if (this.options.onBuildStart.length) {
+      console.log('Executing pre-build scripts');
+      this.handleScriptsOn(this.options.onBuildStart);
+      if (this.options.dev) {
+        this.options.onBuildStart = [];
       }
-      if (this.options.onBuildStart.length) {
-        console.log('Executing pre-build scripts');
-        for (let i = 0; i < this.options.onBuildStart.length; i++) {
-          this.handleScript(this.options.onBuildStart[i]);
-        }
-        if (this.options.dev) {
-          this.options.onBuildStart = [];
-        }
-      }
-    });
+    }
+  }
 
-    compiler.plugin('after-emit', (compilation, callback) => {
-      if (this.options.onBuildEnd.length) {
-        console.log('Executing post-build scripts');
-        for (let i = 0; i < this.options.onBuildEnd.length; i++) {
-          this.handleScript(this.options.onBuildEnd[i]);
-        }
-        if (this.options.dev) {
+  onAfterEmit(compilation, callback) {
+    if (this.options.onBuildEnd.length) {
+      console.log('Executing post-build scripts');
+      this.handleScriptsOn(this.options.onBuildEnd);
+      if (this.options.dev) {
           this.options.onBuildEnd = [];
-        }
       }
-      callback();
-    });
+    }
+    callback();
+  }
 
-    compiler.plugin('done', () => {
-      if (this.options.onBuildExit.length) {
-        console.log('Executing additional scripts before exit');
-        for (let i = 0; i < this.options.onBuildExit.length; i++) {
-          this.handleScript(this.options.onBuildExit[i]);
-        }
-      }
-    });
+  onDone() {
+    if (this.options.onBuildExit.length) {
+      console.log('Executing additional scripts before exit');
+      this.handleScriptsOn(this.options.onBuildExit);
+    }
   }
 }
